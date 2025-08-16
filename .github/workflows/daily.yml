@@ -19,7 +19,6 @@ jobs:
       # Checkout Orchestrator (repo A - chính nó)
       - uses: actions/checkout@v4
 
-      # Chuẩn bị Python trước để dùng step sanity check (Python parse JSON)
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -78,7 +77,16 @@ jobs:
           sudo apt-get install -y ffmpeg espeak jq
 
       - name: Install Python deps
-        run: pip install -r engine/requirements.txt
+        run: |
+          pip install -r engine/requirements.txt
+          python - <<'PY'
+          import sys
+          try:
+              import moviepy, PIL, requests
+              print("moviepy:", moviepy.__version__)
+          except Exception as e:
+              print("PY DEPS CHECK FAILED:", e); sys.exit(1)
+          PY
 
       # DEBUG: xem feeds & picks
       - name: Debug show feeds file
@@ -101,9 +109,8 @@ jobs:
           ls -la engine || true
           ls -la engine/src || true
 
-      # ✅ Verify YouTube auth (retry + không làm fail job nếu timeout mạng)
-      - name: Verify YouTube auth (who am I?)
-        id: whoami
+      # ✅ Verify YouTube token bằng tokeninfo (in scope/expiry, không cần quyền đọc kênh)
+      - name: Verify YouTube auth (tokeninfo)
         continue-on-error: true
         env:
           CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
@@ -111,32 +118,17 @@ jobs:
           REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
         run: |
           set -e
-          ATTEMPTS=5
-          for i in $(seq 1 $ATTEMPTS); do
-            echo "Refresh attempt $i/$ATTEMPTS..."
-            RESP=$(curl -sS --max-time 20 -X POST https://oauth2.googleapis.com/token \
-              -d client_id="$CLIENT_ID" \
-              -d client_secret="$CLIENT_SECRET" \
-              -d refresh_token="$REFRESH_TOKEN" \
-              -d grant_type=refresh_token) || true
-            ACCESS=$(echo "$RESP" | jq -r '.access_token // empty')
-            if [ -n "$ACCESS" ]; then
-              break
-            fi
-            sleep $((2**i))
-          done
+          RESP=$(curl -sS -X POST https://oauth2.googleapis.com/token \
+            -d client_id="$CLIENT_ID" \
+            -d client_secret="$CLIENT_SECRET" \
+            -d refresh_token="$REFRESH_TOKEN" \
+            -d grant_type=refresh_token)
+          ACCESS=$(echo "$RESP" | jq -r '.access_token // empty')
           if [ -z "$ACCESS" ]; then
-            echo "WARN: Could not refresh access_token now (network?). Continue pipeline..."
-            exit 0
+            echo "WARN: cannot refresh access token now"; exit 0
           fi
-          CH=$(curl -sS --max-time 20 -H "Authorization: Bearer $ACCESS" \
-              "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true")
-          echo "$CH" | jq .
-          NAME=$(echo "$CH" | jq -r '.items[0].snippet.title // empty')
-          ID=$(echo "$CH" | jq -r '.items[0].id // empty')
-          echo "YT Channel: ${NAME:-unknown} | id: ${ID:-unknown}"
-          echo "channel_name=$NAME" >> $GITHUB_OUTPUT
-          echo "channel_id=$ID" >> $GITHUB_OUTPUT
+          echo "=== tokeninfo ==="
+          curl -sS "https://oauth2.googleapis.com/tokeninfo?access_token=$ACCESS" | jq .
 
       # Chạy pipeline
       - name: Run pipeline (Natural Voice First)
