@@ -1,0 +1,82 @@
+name: daily-news-to-youtube
+on:
+  schedule:
+    - cron: "0 10 * * *"   # 17:00 giờ VN mỗi ngày
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: news2video-daily
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Checkout Engine (Private) vào thư mục engine/
+      - name: Checkout private engine
+        uses: actions/checkout@v4
+        with:
+          repository: luqman000193-arch/news2video-engine   # đổi YOURUSER
+          token: ${{ secrets.ENGINE_TOKEN }}
+          path: engine
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak
+
+      - name: Install Python deps
+        run: pip install -r engine/requirements.txt
+
+      - name: Run pipeline (Natural Voice First)
+        working-directory: engine
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+
+          # Giọng & pacing tự nhiên
+          PIPER_EN_VOICE: en_US-libritts-high
+          PIPER_HOST_VOICE: en_US-lessac-medium
+          AUTO_LENGTH_SCALE: "false"
+          PIPER_LENGTH_SCALE_BASE: "1.02"
+          HOST_LENGTH_SCALE: "1.06"
+
+          # Nhịp nghỉ tinh tế
+          PAUSE_AFTER_INTRO: "0.6"
+          PAUSE_BETWEEN_SEGS: "0.35"
+
+          # Polish âm thanh
+          LOUDNORM_I: "-14"
+          LOUDNORM_TP: "-1.5"
+          LOUDNORM_LRA: "11"
+          USE_DEESSER: "true"
+
+          # Ảnh & chọn bài
+          MAX_IMAGES: 12
+          MAX_DAILY_VIDEOS: 5
+          PICK_WINDOW: 20
+        run: python run.py
+
+      # (Tuỳ chọn) Lưu danh sách link đã dùng để tránh đăng trùng
+      - name: Persist state (optional)
+        run: |
+          mkdir -p data
+          cp engine/data/state.json data/state.json || true
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.email "bot@users.noreply.github.com"
+          git config user.name "news-bot"
+          git pull --rebase
+          git add data/state.json
+          git commit -m "update state" || echo "no changes"
+          git push
