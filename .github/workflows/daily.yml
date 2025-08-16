@@ -2,7 +2,7 @@ name: daily-news-to-youtube
 
 on:
   schedule:
-    - cron: "0 10 * * *"   # 17:00 giờ VN mỗi ngày
+    - cron: "0 10 * * *"   # 17:00 VN mỗi ngày
   workflow_dispatch:
 
 permissions:
@@ -15,16 +15,28 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
+      # Checkout Orchestrator (repo A - chính nó)
       - uses: actions/checkout@v4
 
+      # Sanity check: token có đọc được repo ENGINE không?
+      - name: Sanity check ENGINE_TOKEN can read Engine repo
+        env:
+          ENGINE_REPO: luqman000193-arch/news2video-engine   # <- Repo B (Private)
+          GH_TOKEN: ${{ secrets.ENGINE_TOKEN }}
+        run: |
+          curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/$ENGINE_REPO \
+            | jq -r '.full_name,.private,.default_branch'
+
+      # Checkout ENGINE (Repo B - Private) vào thư mục engine/
       - name: Checkout private engine
         uses: actions/checkout@v4
         with:
-          repository: YOURUSER/news2video-engine   # <<< ĐỔI YOURUSER
-          token: ${{ secrets.ENGINE_TOKEN }}
+          repository: luqman000193-arch/news2video-engine    # <- Repo B (Private)
+          token: ${{ secrets.ENGINE_TOKEN }}                 # PAT: Contents: Read
           path: engine
+          ref: main                                          # hoặc sửa thành branch mặc định của ENGINE
+          fetch-depth: 1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -57,34 +69,31 @@ jobs:
       - name: Install Python deps
         run: pip install -r engine/requirements.txt
 
-      # --- DEBUG 1: xem file feeds trong Engine ---
-      - name: Debug show feeds file
-        run: |
-          echo "=== engine/feeds/allowed_sources.txt ==="
-          cat engine/feeds/allowed_sources.txt || true
-
-      # --- DEBUG 2: thử RSS NASA & in picks từ pull_feeds.py ---
-      - name: Debug pull feeds
-        working-directory: engine
-        run: |
-          echo "=== curl NASA RSS (first 30 lines) ==="
-          curl -s https://www.nasa.gov/rss/dyn/breaking_news.rss | head -n 30 || true
-          echo "=== python src/pull_feeds.py (picks) ==="
-          python src/pull_feeds.py || true
-
-      # (tuỳ chọn) Debug liệt kê file
+      # Debug nhanh: xác nhận có engine/src
       - name: Debug list files
         run: |
           pwd
           ls -la
-          ls -la engine
+          ls -la engine || true
           ls -la engine/src || true
 
+      # (tuỳ chọn) Kiểm tra feeds + picks
+      - name: Debug pull feeds
+        working-directory: engine
+        run: |
+          echo "=== engine/feeds/allowed_sources.txt ==="
+          cat feeds/allowed_sources.txt || true
+          echo "=== python src/pull_feeds.py (picks) ==="
+          python src/pull_feeds.py || true
+
+      # Chạy pipeline
       - name: Run pipeline (Natural Voice First)
         working-directory: engine
         env:
+          # QUAN TRỌNG: để Python import được 'src'
           PYTHONPATH: ${{ github.workspace }}/engine
 
+          # YouTube OAuth
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
@@ -115,6 +124,7 @@ jobs:
           PICK_WINDOW: 20
         run: python run.py
 
+      # Lưu state (chống đăng trùng)
       - name: Persist state (optional)
         run: |
           mkdir -p data
