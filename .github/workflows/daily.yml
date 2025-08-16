@@ -64,7 +64,7 @@ jobs:
 
           # Ảnh & chọn bài
           MAX_IMAGES: 12
-          MAX_DAILY_VIDEOS: 5
+          MAX_DAILY_VIDEOS: 1
           PICK_WINDOW: 20
         run: python run.py
 
