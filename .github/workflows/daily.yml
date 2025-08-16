@@ -22,20 +22,26 @@ jobs:
       # Sanity check: token có đọc được repo ENGINE không?
       - name: Sanity check ENGINE_TOKEN can read Engine repo
         env:
-          ENGINE_REPO: luqman000193-arch/news2video-engine   # <- Repo B (Private)
+          ENGINE_REPO: luqman000193-arch/news2video-engine
           GH_TOKEN: ${{ secrets.ENGINE_TOKEN }}
         run: |
-          curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/$ENGINE_REPO \
-            | jq -r '.full_name,.private,.default_branch'
+          curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/$ENGINE_REPO > repo.json
+          python - <<'PY'
+          import json
+          j=json.load(open('repo.json'))
+          print("full_name:", j.get('full_name'))
+          print("private:", j.get('private'))
+          print("default_branch:", j.get('default_branch'))
+          PY
 
       # Checkout ENGINE (Repo B - Private) vào thư mục engine/
       - name: Checkout private engine
         uses: actions/checkout@v4
         with:
-          repository: luqman000193-arch/news2video-engine    # <- Repo B (Private)
-          token: ${{ secrets.ENGINE_TOKEN }}                 # PAT: Contents: Read
+          repository: luqman000193-arch/news2video-engine
+          token: ${{ secrets.ENGINE_TOKEN }}   # PAT: Contents: Read
           path: engine
-          ref: main                                          # hoặc sửa thành branch mặc định của ENGINE
+          ref: main
           fetch-depth: 1
 
       - name: Setup Python
@@ -69,7 +75,20 @@ jobs:
       - name: Install Python deps
         run: pip install -r engine/requirements.txt
 
-      # Debug nhanh: xác nhận có engine/src
+      # DEBUG: xem feeds & picks
+      - name: Debug show feeds file
+        run: |
+          echo "=== engine/feeds/allowed_sources.txt ==="
+          cat engine/feeds/allowed_sources.txt || true
+
+      - name: Debug pull feeds
+        working-directory: engine
+        run: |
+          echo "=== curl NASA RSS (first 30 lines) ==="
+          curl -s https://www.nasa.gov/rss/dyn/breaking_news.rss | head -n 30 || true
+          echo "=== python src/pull_feeds.py (picks) ==="
+          python src/pull_feeds.py || true
+
       - name: Debug list files
         run: |
           pwd
@@ -77,20 +96,11 @@ jobs:
           ls -la engine || true
           ls -la engine/src || true
 
-      # (tuỳ chọn) Kiểm tra feeds + picks
-      - name: Debug pull feeds
-        working-directory: engine
-        run: |
-          echo "=== engine/feeds/allowed_sources.txt ==="
-          cat feeds/allowed_sources.txt || true
-          echo "=== python src/pull_feeds.py (picks) ==="
-          python src/pull_feeds.py || true
-
       # Chạy pipeline
       - name: Run pipeline (Natural Voice First)
         working-directory: engine
         env:
-          # QUAN TRỌNG: để Python import được 'src'
+          # để Python import được 'src'
           PYTHONPATH: ${{ github.workspace }}/engine
 
           # YouTube OAuth
@@ -124,15 +134,21 @@ jobs:
           PICK_WINDOW: 20
         run: python run.py
 
-      # Lưu state (chống đăng trùng)
+      # Lưu state (chống đăng trùng) — đã fix autoStash
       - name: Persist state (optional)
+        if: always()
         run: |
-          mkdir -p data
-          cp engine/data/state.json data/state.json || true
+          set -e
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config user.email "bot@users.noreply.github.com"
           git config user.name "news-bot"
-          git pull --rebase
-          git add data/state.json
-          git commit -m "update state" || echo "no changes"
-          git push
+
+          mkdir -p data
+          cp engine/data/state.json data/state.json || true
+
+          git add -A
+          git -c pull.rebase=true -c rebase.autoStash=true pull || true
+
+          git add data/state.json || true
+          git commit -m "update state [skip ci]" || echo "no changes"
+          git push || true
