@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout Orchestrator (repo A - public, bản thân workflow)
+      # Checkout Orchestrator (repo A - public)
       - uses: actions/checkout@v4
 
       # Checkout Engine (repo B - private) vào thư mục engine/
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: luqman000193-arch/news2video-engine   # <<< ĐỔI YOURUSER
-          token: ${{ secrets.ENGINE_TOKEN }}       # secret: PAT chỉ-đọc repo Engine
+          token: ${{ secrets.ENGINE_TOKEN }}       # PAT chỉ-đọc repo Engine
           path: engine
 
       - name: Setup Python
@@ -33,21 +33,21 @@ jobs:
         with:
           python-version: "3.11"
 
-      # (khuyến nghị) Cache pip theo requirements.txt của Engine
+      # Cache pip theo requirements.txt của Engine
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('engine/requirements.txt') }}
 
-      # (tùy chọn) Cache HuggingFace (một số lib có thể dùng)
+      # Cache huggingface (tuỳ chọn)
       - name: Cache huggingface
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: ${{ runner.os }}-hf-${{ hashFiles('engine/requirements.txt') }}
 
-      # (tùy chọn) Cache Piper (binary + voices)
+      # Cache Piper (binary + voices) (tuỳ chọn)
       - name: Cache piper
         uses: actions/cache@v4
         with:
@@ -62,7 +62,7 @@ jobs:
       - name: Install Python deps
         run: pip install -r engine/requirements.txt
 
-      # (gợi ý) Debug: liệt kê file để chắc chắn đã có engine/src
+      # 👉 Debug: xác nhận đã có engine/src
       - name: Debug list files
         run: |
           pwd
@@ -77,7 +77,7 @@ jobs:
           # QUAN TRỌNG: thêm PYTHONPATH để import được 'src'
           PYTHONPATH: ${{ github.workspace }}/engine
 
-          # YouTube OAuth secrets (đã thêm ở Settings → Secrets)
+          # YouTube OAuth secrets (đặt ở Repo A → Settings → Secrets)
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
@@ -120,4 +120,3 @@ jobs:
           git add data/state.json
           git commit -m "update state" || echo "no changes"
           git push
-
