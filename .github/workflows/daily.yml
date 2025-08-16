@@ -17,15 +17,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout Orchestrator (repo A - public)
       - uses: actions/checkout@v4
 
-      # Checkout Engine (repo B - private) vào thư mục engine/
       - name: Checkout private engine
         uses: actions/checkout@v4
         with:
-          repository: luqman000193-arch/news2video-engine   # <<< ĐỔI YOURUSER
-          token: ${{ secrets.ENGINE_TOKEN }}       # PAT chỉ-đọc repo Engine
+          repository: YOURUSER/news2video-engine   # <<< ĐỔI YOURUSER
+          token: ${{ secrets.ENGINE_TOKEN }}
           path: engine
 
       - name: Setup Python
@@ -33,21 +31,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Cache pip theo requirements.txt của Engine
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('engine/requirements.txt') }}
 
-      # Cache huggingface (tuỳ chọn)
       - name: Cache huggingface
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: ${{ runner.os }}-hf-${{ hashFiles('engine/requirements.txt') }}
 
-      # Cache Piper (binary + voices) (tuỳ chọn)
       - name: Cache piper
         uses: actions/cache@v4
         with:
@@ -62,7 +57,22 @@ jobs:
       - name: Install Python deps
         run: pip install -r engine/requirements.txt
 
-      # 👉 Debug: xác nhận đã có engine/src
+      # --- DEBUG 1: xem file feeds trong Engine ---
+      - name: Debug show feeds file
+        run: |
+          echo "=== engine/feeds/allowed_sources.txt ==="
+          cat engine/feeds/allowed_sources.txt || true
+
+      # --- DEBUG 2: thử RSS NASA & in picks từ pull_feeds.py ---
+      - name: Debug pull feeds
+        working-directory: engine
+        run: |
+          echo "=== curl NASA RSS (first 30 lines) ==="
+          curl -s https://www.nasa.gov/rss/dyn/breaking_news.rss | head -n 30 || true
+          echo "=== python src/pull_feeds.py (picks) ==="
+          python src/pull_feeds.py || true
+
+      # (tuỳ chọn) Debug liệt kê file
       - name: Debug list files
         run: |
           pwd
@@ -70,14 +80,11 @@ jobs:
           ls -la engine
           ls -la engine/src || true
 
-      # ---- Chạy pipeline ----
       - name: Run pipeline (Natural Voice First)
         working-directory: engine
         env:
-          # QUAN TRỌNG: thêm PYTHONPATH để import được 'src'
           PYTHONPATH: ${{ github.workspace }}/engine
 
-          # YouTube OAuth secrets (đặt ở Repo A → Settings → Secrets)
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
@@ -86,12 +93,12 @@ jobs:
           PIPER_EN_VOICE: en_US-libritts-high
           PIPER_HOST_VOICE: en_US-lessac-medium
 
-          # Natural pacing (không ép dài)
+          # Natural pacing
           AUTO_LENGTH_SCALE: "false"
           PIPER_LENGTH_SCALE_BASE: "1.02"
           HOST_LENGTH_SCALE: "1.06"
 
-          # Pauses (tinh tế)
+          # Pauses
           PAUSE_AFTER_INTRO: "0.6"
           PAUSE_BETWEEN_SEGS: "0.35"
 
@@ -100,7 +107,7 @@ jobs:
           LOUDNORM_TP: "-1.5"
           LOUDNORM_LRA: "11"
           USE_DEESSER: "true"
-          MUSIC_BED_DB: "-28"   # nếu có assets/music_bed.mp3 trong Engine
+          MUSIC_BED_DB: "-28"
 
           # Pipeline
           MAX_IMAGES: 12
@@ -108,7 +115,6 @@ jobs:
           PICK_WINDOW: 20
         run: python run.py
 
-      # (Tuỳ chọn) Lưu state để tránh đăng trùng link
       - name: Persist state (optional)
         run: |
           mkdir -p data
