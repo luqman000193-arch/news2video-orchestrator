@@ -70,10 +70,35 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg espeak
+          sudo apt-get install -y ffmpeg espeak jq
 
       - name: Install Python deps
         run: pip install -r engine/requirements.txt
+
+      # ✅ Xác minh OAuth: in ra tên kênh & channelId để chắc upload đúng kênh
+      - name: Verify YouTube auth (who am I?)
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          from googleapiclient.discovery import build
+          from google.oauth2.credentials import Credentials
+          creds = Credentials(
+              None,
+              refresh_token=os.environ["YT_REFRESH_TOKEN"],
+              token_uri="https://oauth2.googleapis.com/token",
+              client_id=os.environ["GOOGLE_CLIENT_ID"],
+              client_secret=os.environ["GOOGLE_CLIENT_SECRET"],
+              scopes=["https://www.googleapis.com/auth/youtube.upload"]
+          )
+          yt = build("youtube","v3",credentials=creds)
+          me = yt.channels().list(part="snippet,statistics", mine=True).execute()
+          it = me["items"][0]
+          print("YT Channel:", it["snippet"]["title"], "| id:", it["id"])
+          PY
 
       # DEBUG: xem feeds & picks
       - name: Debug show feeds file
@@ -84,8 +109,8 @@ jobs:
       - name: Debug pull feeds
         working-directory: engine
         run: |
-          echo "=== curl NASA RSS (first 30 lines) ==="
-          curl -s https://www.nasa.gov/rss/dyn/breaking_news.rss | head -n 30 || true
+          echo "=== curl NASA RSS (first 20 lines) ==="
+          curl -s https://www.nasa.gov/rss/dyn/breaking_news.rss | head -n 20 || true
           echo "=== python src/pull_feeds.py (picks) ==="
           python src/pull_feeds.py || true
 
@@ -134,7 +159,25 @@ jobs:
           PICK_WINDOW: 20
         run: python run.py
 
-      # Lưu state (chống đăng trùng) — đã fix autoStash
+      # Thu thập artifact để bạn tải nếu upload lỗi (video/mp3/srt/thumb)
+      - name: List outputs
+        run: |
+          echo "=== OUTPUT TREE ==="
+          find engine/output -maxdepth 3 -type f \( -name "video.mp4" -o -name "thumbnail.jpg" -o -name "*.srt" \) -print || true
+
+      - name: Upload artifacts (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outputs-debug
+          path: |
+            engine/output/**/video.mp4
+            engine/output/**/thumbnail.jpg
+            engine/output/**/subs.srt
+          if-no-files-found: ignore
+          retention-days: 3
+
+      # Lưu state (chống đăng trùng) — autoStash để không lỗi rebase
       - name: Persist state (optional)
         if: always()
         run: |
