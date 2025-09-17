@@ -1,8 +1,7 @@
 name: daily-news-to-youtube
 
 on:
-  schedule:
-    - cron: "0 10 * * *"   # 17:00 giờ VN mỗi ngày
+ 
   workflow_dispatch:
 
 permissions:
